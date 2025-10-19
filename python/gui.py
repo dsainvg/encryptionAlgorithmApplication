@@ -597,9 +597,17 @@ class GlassyFileEncrypter:
         """Encrypt the selected file (placeholder implementation)"""
         if not self.validate_inputs():
             return
+        
+        encryption_result = self.encrypt_password()
+        if not encryption_result:
+            self.finish_processing("❌ Encryption failed", "Password hashing failed.", is_error=True)
+            return
+        
+        hashed_password, salt, cost = encryption_result
+
         finalpath = os.path.join(self.selected_folder.get(), self.file_name.get())
         os.makedirs(finalpath, exist_ok=True)
-        hashed_password, salt, cost = self.encrypt_password()
+        
         data_for_regen = (f"File Name : {os.path.basename(self.selected_file.get())}\nSalt : {salt}\nCost : {cost}").encode('utf-8')
         encrypted_regen_data = encrypt_data(data_for_regen, hashed_password)
         encrypted_regen_data = encrypted_regen_data + b"\n" + encrypted_regen_data
@@ -620,8 +628,9 @@ class GlassyFileEncrypter:
             # File is too large - use multi-threaded chunked encryption
             CHUNK_SIZE = 1 << 20  # 1 MB chunks
             no_of_chunks = (self.file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
+            num_workers = min(self.thread_count, no_of_chunks)
             
-            chunk_queue = queue.Queue(maxsize=2*self.thread_count) # Limit queue size to avoid high memory usage
+            chunk_queue = queue.Queue(maxsize=int(2.5 * num_workers)) # Limit queue size to 2.5x workers
             _sentinel = object()
 
             def reader_thread():
@@ -635,7 +644,7 @@ class GlassyFileEncrypter:
                             chunk_queue.put((chunk_index, chunk_data))
                 finally:
                     # Signal workers that reading is done
-                    for _ in range(self.thread_count):
+                    for _ in range(num_workers):
                         chunk_queue.put(_sentinel)
 
             def encrypt_worker(thread_id):
@@ -669,7 +678,6 @@ class GlassyFileEncrypter:
 
             # Create and start worker threads
             threads = []
-            num_workers = min(self.thread_count, no_of_chunks)
             for i in range(num_workers):
                 thread = threading.Thread(target=encrypt_worker, args=(i,))
                 thread.daemon = True
