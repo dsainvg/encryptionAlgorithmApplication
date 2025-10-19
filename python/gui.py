@@ -9,6 +9,7 @@ This GUI recreates the beautiful glassy interface design with:
 
 import mmap
 import shutil
+import tkthread; tkthread.patch()
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter import font as tkfont

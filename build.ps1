@@ -23,8 +23,8 @@ $ErrorActionPreference = 'Stop'
 $script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
 
-Write-Host "Python 3.14 Build Configuration" -ForegroundColor Magenta
-Write-Host "Note: This module requires Python 3.14 to run" -ForegroundColor Yellow
+Write-Host "Python Build Configuration" -ForegroundColor Magenta
+Write-Host "Note: This module requires Python to run" -ForegroundColor Yellow
 Write-Host ""
 
 $buildDir = Join-Path $Root 'build'

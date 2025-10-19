@@ -13,10 +13,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Target Python 3.14 explicitly
-set(Python3_FIND_STRATEGY LOCATION)
-set(Python3_ROOT_DIR "C:/Users/dsain/AppData/Local/Programs/Python/Python314")
-find_package(Python3 3.14 EXACT COMPONENTS Interpreter Development REQUIRED)
+# Target Python 3.13 explicitly
+find_package(Python3 3.13 EXACT COMPONENTS Interpreter Development REQUIRED)
 find_package(pybind11 CONFIG QUIET)
 if(NOT pybind11_FOUND)
     message(STATUS "pybind11 not found via CONFIG; using FetchContent to retrieve it")
@@ -50,6 +48,13 @@ endif()
 # Windows specific: set the suffix to .pyd for Python extension modules
 if (WIN32)
     set_target_properties(encryption_backend PROPERTIES SUFFIX ".pyd")
+    
+    # Copy dependent DLLs to the output directory
+    add_custom_command(TARGET encryption_backend POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_RUNTIME_DLLS:encryption_backend>"
+        "$<TARGET_FILE_DIR:encryption_backend>"
+        COMMAND_EXPAND_LISTS)
 endif()
 
 # Optimize in Release

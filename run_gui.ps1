@@ -1,19 +1,21 @@
 #!/usr/bin/env pwsh
-# Run GUI with Python 3.14
+# Run GUI with Python 3.13
 # This script ensures the application runs with the correct Python version
 
 Write-Host "Starting Secure File Encrypter GUI..." -ForegroundColor Cyan
-Write-Host "Using Python 3.14" -ForegroundColor Yellow
+Write-Host "Using Python 3.13" -ForegroundColor Yellow
 Write-Host ""
 
-$pythonPath = "C:\Users\dsain\AppData\Local\Programs\Python\Python314\python.exe"
-$guiScript = Join-Path $PSScriptRoot "python\gui.py"
+$pythonPath = "python"
+$guiScript = "gui.py"
+$pythonDir = Join-Path $PSScriptRoot "python"
 
-if (Test-Path $pythonPath) {
+try {
+    Push-Location $pythonDir
     & $pythonPath $guiScript
-} else {
-    Write-Host "ERROR: Python 3.14 not found at expected location" -ForegroundColor Red
-    Write-Host "Expected: $pythonPath" -ForegroundColor Yellow
-    Write-Host "Please update the path in this script or install Python 3.14" -ForegroundColor Yellow
+    Pop-Location
+} catch {
+    Write-Host "ERROR: python not found or script failed. Please ensure python is in your PATH." -ForegroundColor Red
     Read-Host "Press Enter to exit"
+    Pop-Location
 }
