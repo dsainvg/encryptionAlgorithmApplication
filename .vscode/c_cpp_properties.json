@@ -1,0 +1,31 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "Windows-MSVC",
+            "compilerPath": "cl.exe",
+            "intelliSenseMode": "windows-msvc-x64",
+            "windowsSdkVersion": "10.0.22621.0",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "includePath": [
+                "${workspaceFolder}/cpp",
+                "${workspaceFolder}/build/_deps/pybind11-src/include",
+                "C:/Python313/include",
+                "C:/Python313/Include"
+            ],
+            "defines": [
+                "_CRT_SECURE_NO_WARNINGS"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/cpp",
+                    "${workspaceFolder}/build/_deps/pybind11-src/include",
+                    "C:/Python313/include",
+                    "C:/Python313/Include"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ]
+}
