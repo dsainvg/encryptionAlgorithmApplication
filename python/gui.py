@@ -14,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter import font as tkfont
 import os
+from multiprocessing import Process, Lock, Pool
 # from concurrent.futures import ThreadPoolExecutor
 import zipfile
 from encryption_backend import encrypt_data, hash_password, generate_salt  # pyright: ignore[reportMissingImports]
@@ -21,6 +22,29 @@ import math
 from typing import Optional
 import threading
 import queue
+
+# --- Worker Process (moved outside the class) ---
+def encrypt_worker_process(selected_file, chunk_info, hashed_password, finalpath, file_name_base):
+    """Worker process to encrypt a single chunk of data."""
+    chunk_no, offset, size = chunk_info
+    try:
+        with open(selected_file, "rb") as f_in:
+            f_in.seek(offset)
+            chunk_data = f_in.read(size)
+        
+        encrypted = encrypt_data(chunk_data, hashed_password)
+        
+        # Write encrypted chunk to file
+        chunk_filename = f"{file_name_base}_{chunk_no:04d}.crypt"
+        with open(os.path.join(finalpath, chunk_filename), "wb") as f:
+            f.write(encrypted)
+        
+        # Using print for now, a more robust logging/queue system could be used
+        # print(f"Process {os.getpid()}: Encrypted chunk {chunk_no}")
+        return True
+    except Exception as e:
+        # print(f"Process {os.getpid()}: Error encrypting chunk {chunk_no}: {e}")
+        return False
 
 # Glassmorphism Color Palette - Enhanced
 DARK_BG = "#10101a"  # Very dark background
@@ -163,7 +187,6 @@ class GlassyFileEncrypter:
             bg=DARK_BG
         )
         subtitle_label.pack(pady=(3, 0))
-
     def reset_to_initial_state(self):
         """Reset UI to initial state with only file upload visible"""
         # Hide sections
@@ -618,103 +641,64 @@ class GlassyFileEncrypter:
         with open(os.path.join(finalpath, "file.txt"), "wb") as f:
             f.write(data_for_regen)
         self.start_processing("Encrypting file...")
-        if self.file_size < 1 << 20:
-            # File is small enough for quick encryption
-            with open(self.selected_file.get(), "rb") as f:
-                data = f.read()
-                encrypted = encrypt_data(data, hashed_password)
-            with open(os.path.join(finalpath, self.file_name.get() + ".crypt"), "wb") as f:
-                f.write(encrypted)
-        else:
-            # File is too large - use multi-threaded chunked encryption
-            CHUNK_SIZE = 1 << 20  # 1 MB chunks
-            no_of_chunks = (self.file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
-            num_workers = min(self.thread_count, no_of_chunks)
-            
-            chunk_queue = queue.Queue(maxsize=int(2.5 * num_workers)) # Limit queue size to 2.5x workers
-            _sentinel = object()
 
-            def reader_thread():
-                """Reads the file in chunks and puts them on the queue."""
-                try:
-                    with open(self.selected_file.get(), "rb") as f_in:
-                        for chunk_index in range(no_of_chunks):
-                            chunk_data = f_in.read(CHUNK_SIZE)
-                            if not chunk_data:
-                                break
-                            chunk_queue.put((chunk_index, chunk_data))
-                finally:
-                    # Signal workers that reading is done
-                    for _ in range(num_workers):
-                        chunk_queue.put(_sentinel)
+        def encryption_logic():
+            try:
+                if self.file_size < 1 << 20:
+                    # File is small enough for quick encryption
+                    with open(self.selected_file.get(), "rb") as f:
+                        data = f.read()
+                    encrypted = encrypt_data(data, hashed_password)
+                    with open(os.path.join(finalpath, self.file_name.get() + ".crypt"), "wb") as f:
+                        f.write(encrypted)
+                else:
+                    # File is large - use multiprocessing Pool for chunked encryption
+                    CHUNK_SIZE = 1 << 20  # 1 MB chunks
+                    no_of_chunks = (self.file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
+                    
+                    tasks = []
+                    for i in range(no_of_chunks):
+                        offset = i * CHUNK_SIZE
+                        size = min(CHUNK_SIZE, self.file_size - offset)
+                        tasks.append((self.selected_file.get(), (i, offset, size), hashed_password, finalpath, self.file_name.get()))
 
-            def encrypt_worker(thread_id):
-                """Worker function to encrypt chunks from the queue."""
-                while True:
-                    chunk = chunk_queue.get()
-                    if chunk is _sentinel:
-                        chunk_queue.task_done()
-                        break
+                    # Use a Pool to manage worker processes, limited to CPU count
+                    with Pool(processes=self.thread_count) as pool:
+                        results = pool.starmap(encrypt_worker_process, tasks)
+                    
+                    if all(results):
+                        # print(f"All {no_of_chunks} chunks encrypted successfully")
+                        pass
+                    else:
+                        raise Exception("One or more chunks failed to encrypt.")
 
-                    chunk_no, chunk_data = chunk
-                    try:
-                        encrypted = encrypt_data(chunk_data, hashed_password)
-                        
-                        # Write encrypted chunk to file
-                        chunk_filename = f"{self.file_name.get()}_{chunk_no:04d}.crypt"
-                        with open(os.path.join(finalpath, chunk_filename), "wb") as f:
-                            f.write(encrypted)
-                        
-                        print(f"Thread {thread_id}: Encrypted chunk {chunk_no}/{no_of_chunks}")
-                        
-                    except Exception as e:
-                        print(f"Thread {thread_id}: Error encrypting chunk {chunk_no}: {e}")
-                    finally:
-                        chunk_queue.task_done()
+                final_folder = os.path.join(self.selected_folder.get(), self.file_name.get())
+                
+                zip_path = finalpath + "_encrypted.zip"
 
-            # Start the reader thread
-            reader = threading.Thread(target=reader_thread)
-            reader.daemon = True
-            reader.start()
+                with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for root_dir, _, files in os.walk(final_folder):
+                        for fname in files:
+                            full_path = os.path.join(root_dir, fname)
+                            if os.path.abspath(full_path) == os.path.abspath(zip_path):
+                                continue
+                            arcname = os.path.relpath(full_path, start=final_folder)
+                            zf.write(full_path, arcname)
 
-            # Create and start worker threads
-            threads = []
-            for i in range(num_workers):
-                thread = threading.Thread(target=encrypt_worker, args=(i,))
-                thread.daemon = True
-                threads.append(thread)
-                thread.start()
-            
-            # Wait for reader and workers to finish
-            reader.join()
-            chunk_queue.join()
-            for thread in threads:
-                thread.join()
-            
-            print(f"All {no_of_chunks} chunks encrypted successfully")
+                if os.path.isdir(finalpath):
+                    shutil.rmtree(finalpath, ignore_errors=True)
+                
+                self.root.after(0, lambda: self.finish_processing(
+                    "✅ File encrypted and zipped",
+                    f"Archive created at:\n{zip_path}"
+                ))
+            except Exception as e:
+                self.root.after(0, lambda e=e: self.finish_processing("❌ Encryption failed", str(e), is_error=True))
 
-        final_folder = os.path.join(self.selected_folder.get(), self.file_name.get())
-        
-        try:
-            zip_path = finalpath + "_encrypted.zip"
-
-            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for root_dir, _, files in os.walk(final_folder):
-                    for fname in files:
-                        full_path = os.path.join(root_dir, fname)
-                        if os.path.abspath(full_path) == os.path.abspath(zip_path):
-                            continue
-                        arcname = os.path.relpath(full_path, start=final_folder)
-                        zf.write(full_path, arcname)
-
-            if os.path.isdir(finalpath):
-                shutil.rmtree(finalpath, ignore_errors=True)
-            self.finish_processing(
-                "✅ File encrypted and zipped",
-                f"Archive created at:\n{zip_path}"
-            )
-        except Exception as e:
-            self.finish_processing("❌ Encryption failed", str(e), is_error=True)
+        # Run the encryption logic in a separate thread to not block the GUI
+        thread = threading.Thread(target=encryption_logic)
+        thread.daemon = True
+        thread.start()
 
         
         
@@ -727,31 +711,27 @@ class GlassyFileEncrypter:
             return
         finalpath = os.path.join(self.selected_folder.get(), self.file_name.get())
         
-
-        # """Decrypt the selected file (placeholder implementation)"""
-        # if not self.validate_inputs():
-        #     return
+    def encrypt_worker_process(self, chunk_info, hashed_password, finalpath, file_name_base):
+        """Worker process to encrypt a single chunk of data."""
+        chunk_no, offset, size = chunk_info
+        try:
+            with open(self.selected_file.get(), "rb") as f_in:
+                f_in.seek(offset)
+                chunk_data = f_in.read(size)
             
-        # self.start_processing("Decrypting file...")
-        
-        # # Simulate decryption process
-        # def decrypt_worker():
-        #     try:
-        #         time.sleep(2)  # Simulate processing time
-        #         self.root.after(0, lambda: self.finish_processing(
-        #             "✅ File decrypted successfully!",
-        #             "Your file has been successfully decrypted."
-        #         ))
-        #     except Exception as e:
-        #         self.root.after(0, lambda: self.finish_processing(
-        #             "❌ Decryption failed",
-        #             str(e),
-        #             is_error=True
-        #         ))
-        
-        # thread = threading.Thread(target=decrypt_worker)
-        # thread.daemon = True
-        # thread.start()
+            encrypted = encrypt_data(chunk_data, hashed_password)
+            
+            # Write encrypted chunk to file
+            chunk_filename = f"{file_name_base}_{chunk_no:04d}.crypt"
+            with open(os.path.join(finalpath, chunk_filename), "wb") as f:
+                f.write(encrypted)
+            
+            # Using print for now, a more robust logging/queue system could be used
+            print(f"Process {os.getpid()}: Encrypted chunk {chunk_no}")
+            return True
+        except Exception as e:
+            print(f"Process {os.getpid()}: Error encrypting chunk {chunk_no}: {e}")
+            return False
 
     def validate_inputs(self):
         """Validate user inputs"""

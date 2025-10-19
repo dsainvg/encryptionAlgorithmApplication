@@ -8,7 +8,8 @@ Write-Host ""
 
 $pythonPath = "python"
 $guiScript = "gui.py"
-$pythonDir = Join-Path $PSScriptRoot "python"
+$scriptRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$pythonDir = Join-Path $scriptRoot "python"
 
 try {
     Push-Location $pythonDir

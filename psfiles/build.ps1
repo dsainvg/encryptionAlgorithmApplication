@@ -20,8 +20,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$script:Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $Root
+$script:Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+Set-Location $script:Root
 
 Write-Host "Python Build Configuration" -ForegroundColor Magenta
 Write-Host "Note: This module requires Python to run" -ForegroundColor Yellow
